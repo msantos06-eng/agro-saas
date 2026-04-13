@@ -1,79 +1,74 @@
+# app.py
 import streamlit as st
-import requests
 
-API_URL = "https://SEU-BACKEND.onrender.com"
+from auth import init_db, create_user, login_user
+from database import init_data_tables, add_farm, get_farms
+from map import generate_map
+from dashboard import show_dashboard
+from ai import analyze_farm
+from streamlit_folium import st_folium
 
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
+st.set_page_config(page_title="Agro SaaS", layout="wide")
+
+init_db()
+init_data_tables()
 
 # ======================
 # LOGIN
 # ======================
-if not st.session_state.user_id:
+st.sidebar.title("🔐 Login")
 
-    st.title("🌱 Agro SaaS")
+menu = st.sidebar.radio("Menu", ["Login", "Cadastro"])
 
-    aba = st.radio("Acesso", ["Login", "Cadastro"])
+if menu == "Cadastro":
+    user = st.sidebar.text_input("Usuário")
+    pwd = st.sidebar.text_input("Senha", type="password")
 
-    if aba == "Cadastro":
-        u = st.text_input("Usuário")
-        s = st.text_input("Senha", type="password")
+    if st.sidebar.button("Criar conta"):
+        create_user(user, pwd)
+        st.success("Usuário criado!")
 
-        if st.button("Cadastrar"):
-            requests.post(f"{API_URL}/register", params={"usuario": u, "senha": s})
-            st.success("Criado")
+elif menu == "Login":
+    user = st.sidebar.text_input("Usuário")
+    pwd = st.sidebar.text_input("Senha", type="password")
 
-    if aba == "Login":
-        u = st.text_input("Usuário")
-        s = st.text_input("Senha", type="password")
-
-        if st.button("Entrar"):
-            r = requests.post(f"{API_URL}/login", params={"usuario": u, "senha": s})
-            if r.status_code == 200:
-                st.session_state.user_id = r.json()["user_id"]
-                st.rerun()
-            else:
-                st.error("Erro login")
+    if st.sidebar.button("Entrar"):
+        if login_user(user, pwd):
+            st.session_state["auth"] = True
+        else:
+            st.error("Login inválido")
 
 # ======================
 # APP
 # ======================
+if st.session_state.get("auth"):
+
+    st.title("🌾 Agro SaaS Enterprise")
+
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Mapa", "➕ Cadastro"])
+
+    farms = get_farms()
+
+    with tab1:
+        show_dashboard(farms)
+
+    with tab2:
+        m = generate_map(farms)
+        st_folium(m, width=900, height=500)
+
+    with tab3:
+        st.subheader("Cadastrar Fazenda")
+
+        name = st.text_input("Nome")
+        area = st.number_input("Área (ha)")
+        lat = st.number_input("Latitude")
+        lon = st.number_input("Longitude")
+
+        if st.button("Salvar"):
+            add_farm(name, area, lat, lon)
+            st.success("Fazenda adicionada!")
+
+        if area:
+            st.info(analyze_farm(area))
 else:
-
-    st.sidebar.button("Sair", on_click=lambda: st.session_state.update(user_id=None))
-
-    menu = st.sidebar.radio("Menu", ["Fazendas", "Talhões"])
-
-    if menu == "Fazendas":
-
-        nome = st.text_input("Nome fazenda")
-
-        if st.button("Salvar"):
-            requests.post(f"{API_URL}/fazenda",
-                          params={"nome": nome, "user_id": st.session_state.user_id})
-
-        dados = requests.get(f"{API_URL}/fazendas/{st.session_state.user_id}").json()
-
-        for f in dados:
-            st.write("🌾", f["nome"])
-
-    elif menu == "Talhões":
-
-        fazendas = requests.get(f"{API_URL}/fazendas/{st.session_state.user_id}").json()
-
-        nomes = [f["nome"] for f in fazendas]
-        escolha = st.selectbox("Fazenda", nomes)
-
-        fid = [f["id"] for f in fazendas if f["nome"] == escolha][0]
-
-        nome = st.text_input("Talhão")
-        area = st.number_input("Área")
-
-        if st.button("Salvar"):
-            requests.post(f"{API_URL}/talhao",
-                          params={"nome": nome, "area": area, "fazenda_id": fid})
-
-        dados = requests.get(f"{API_URL}/talhoes/{fid}").json()
-
-        for t in dados:
-            st.write("📍", t["nome"], "-", t["area"], "ha")
+    st.warning("Faça login para acessar o sistema")
