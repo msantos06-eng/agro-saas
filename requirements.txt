@@ -13,3 +13,4 @@ numpy
 pillow
 fastapi
 uvicorn
+pillow
