@@ -1,74 +1,136 @@
-# app.py
 import streamlit as st
+import sqlite3
+import hashlib
+import os
+import requests
+import json
+import numpy as np
+from PIL import Image
 
-from auth import init_db, create_user, login_user
-from database import init_data_tables, add_farm, get_farms
-from map import generate_map
-from dashboard import show_dashboard
-from ai import analyze_farm
+from ndvi import calculate_ndvi
+from vra import generate_vra_map, export_vra_csv
+from sentinel import get_token, search_sentinel
+from ndvi_map import create_ndvi_colored_map
+
+try:
+    from ai_agro import analyze_sentinel_ndvi
+except ImportError:
+    analyze_sentinel_ndvi = None
+
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="Agro SaaS", layout="wide")
+# 🚨 TEM QUE SER A PRIMEIRA LINHA STREAMLIT
+st.set_page_config(page_title="NDVI SaaS v2", layout="wide")
 
-init_db()
-init_data_tables()
+st.title("🌱 NDVI SaaS v2 - Agricultura de Precisão (FieldView Style)")
 
-# ======================
-# LOGIN
-# ======================
-st.sidebar.title("🔐 Login")
+import numpy as np
 
-menu = st.sidebar.radio("Menu", ["Login", "Cadastro"])
+if st.button("Rodar NDVI"):
+    ndvi = np.random.rand(20,20)
 
-if menu == "Cadastro":
-    user = st.sidebar.text_input("Usuário")
-    pwd = st.sidebar.text_input("Senha", type="password")
+    st.success("Saudável")
+    st.info("Sem ação necessária")
 
-    if st.sidebar.button("Criar conta"):
-        create_user(user, pwd)
-        st.success("Usuário criado!")
+# =========================
+# TESTE FASTAPI
+# =========================
+if st.button("Rodar NDVI (Backend)"):
 
-elif menu == "Login":
-    user = st.sidebar.text_input("Usuário")
-    pwd = st.sidebar.text_input("Senha", type="password")
+    response = requests.get(f"{API_URL}/ndvi")
+    data = response.json()
 
-    if st.sidebar.button("Entrar"):
-        if login_user(user, pwd):
-            st.session_state["auth"] = True
-        else:
-            st.error("Login inválido")
+    st.success(data["status"])
+    st.info(data["recommendation"])
 
-# ======================
-# APP
-# ======================
-if st.session_state.get("auth"):
+# =========================
+# TABS
+# =========================
+tab1, tab2 = st.tabs(["📷 Upload NDVI", "🛰️ Sentinel + IA"])
 
-    st.title("🌾 Agro SaaS Enterprise")
+# =========================================================
+# TAB 1
+# =========================================================
+with tab1:
 
-    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Mapa", "➕ Cadastro"])
+    uploaded_file = st.file_uploader(
+        "Upload imagem (drone ou satélite)",
+        type=["png", "jpg", "jpeg"]
+    )
 
-    farms = get_farms()
+    if uploaded_file:
 
-    with tab1:
-        show_dashboard(farms)
+        image = Image.open(uploaded_file)
 
-    with tab2:
-        m = generate_map(farms)
-        st_folium(m, width=900, height=500)
+        st.subheader("Imagem Original")
+        st.image(image, use_container_width=True)
 
-    with tab3:
-        st.subheader("Cadastrar Fazenda")
+        ndvi = calculate_ndvi(np.random.rand(10,10), np.random.rand(10,10))
 
-        name = st.text_input("Nome")
-        area = st.number_input("Área (ha)")
-        lat = st.number_input("Latitude")
-        lon = st.number_input("Longitude")
+        st.subheader("🌿 NDVI")
+        st.image(ndvi, use_container_width=True)
 
-        if st.button("Salvar"):
-            add_farm(name, area, lat, lon)
-            st.success("Fazenda adicionada!")
+        ndvi_map = create_ndvi_colored_map(ndvi)
+        st_folium(ndvi_map, width=900, height=500)
 
-        if area:
-            st.info(analyze_farm(area))
-else:
-    st.warning("Faça login para acessar o sistema")
+        zones = generate_vra_map(ndvi)
+        df = export_vra_csv(zones)
+
+        st.subheader("📦 VRA")
+        st.dataframe(df)
+
+# =========================================================
+# TAB 2
+# =========================================================
+with tab2:
+
+    st.header("🛰️ NDVI Satélite + IA")
+
+    if st.button("Buscar Sentinel + IA"):
+
+        try:
+            client_id = st.secrets["SENTINEL_CLIENT_ID"]
+            client_secret = st.secrets["SENTINEL_CLIENT_SECRET"]
+
+            token = get_token(client_id, client_secret)
+
+            st.success("Conectado ao Sentinel!")
+
+            bbox = "POLYGON((-46 -12, -46 -13, -45 -13, -45 -12, -46 -12))"
+
+            data = search_sentinel(token, bbox, "2024-01-01", "2024-01-10")
+
+            st.json(data)
+
+            ndvi_fake = np.random.rand(20, 20)
+
+            if analyze_sentinel_ndvi:
+                result = analyze_sentinel_ndvi(ndvi_fake, 0.6, 27)
+
+                st.success(result["status"])
+                st.info(result["recommendation"])
+            else:
+                st.warning("IA não disponível")
+
+        except Exception as e:
+            st.error(f"Erro: {str(e)}")
+
+    # =========================
+    # IA AGRÍCOLA (SEPARADA)
+    # =========================
+
+    st.subheader("🧠 IA Agrícola")
+
+    rainfall = 0.6
+    temp = 27
+
+    if st.button("Rodar IA Agrícola") and analyze_sentinel_ndvi:
+
+        result = analyze_sentinel_ndvi(
+            np.random.rand(10, 10),
+            rainfall,
+            temp
+        )
+
+        st.success(result["status"])
+        st.info(result["recommendation"])
